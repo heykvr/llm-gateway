@@ -25,3 +25,21 @@ class ChatResponse(BaseModel):
     content: str
     model: str
     usage: Usage
+
+
+class SessionChatRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+    persona: str | None = None
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    strategy: Literal["sliding", "summarize"] = "sliding"
+
+
+class SessionChatResponse(BaseModel):
+    content: str
+    model: str
+    usage: Usage
+    session_tokens: int          # how full is this session's context
+    messages_in_history: int
+    dropped_messages: int        # sliding window at work
+    compressed_messages: int = 0

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import httpx
+import json as jsonlib
 
 
 class LLMProvider(ABC):
@@ -33,3 +34,28 @@ class OllamaProvider(LLMProvider):
             "completion_tokens": data.get("eval_count", 0),
             "model": self.model,
         }
+    
+    async def chat_stream(self, messages: list[dict], temperature: float = 0.7):
+        """Yields tokens one at a time. Final yield is a stats dict."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", f"{self.base_url}/api/chat", json={
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+                "options": {"temperature": temperature},
+            }) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = jsonlib.loads(line)
+                    token = chunk.get("message", {}).get("content", "")
+                    if token:
+                        yield {"type": "token", "content": token}
+                    if chunk.get("done"):
+                        yield {
+                            "type": "stats",
+                            "prompt_tokens": chunk.get("prompt_eval_count", 0),
+                            "completion_tokens": chunk.get("eval_count", 0),
+                            "model": self.model,
+                        }
