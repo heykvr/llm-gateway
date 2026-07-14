@@ -4,9 +4,14 @@ import httpx
 from app.llm import OllamaProvider
 from app.models import ChatRequest, ChatResponse, Usage
 from app.tokenizer import estimate_cost, cost_comparison
+from app.resilience import ResilientLLM
 app = FastAPI(title="llm-gateway", version="0.1.0")
+llm = ResilientLLM(
+    primary=OllamaProvider(model="llama3.1"),
+    fallback=OllamaProvider(model="llama3.2"),
+)
 
-llm = OllamaProvider()
+# llm = OllamaProvider()
 
 # ── Personas: server-controlled system prompts (Topic 9) ──────────────────
 PERSONAS = {
@@ -14,7 +19,9 @@ PERSONAS = {
     "concise":  "You are a helpful assistant. Answer in 2 sentences maximum.",
     "engineer": "You are a senior software engineer. Be precise and technical. Use code examples where helpful.",
     "teacher":  "You explain concepts simply, using analogies, as if teaching a beginner.",
+    
 }
+
 
 
 @app.get("/health")
@@ -44,7 +51,15 @@ async def chat(req: ChatRequest):
         if messages[0]["role"] != "system":
             messages.insert(0, {"role": "system", "content": PERSONAS[req.persona]})
 
-    result = await llm.chat(messages, temperature=req.temperature)
+    try:
+        result = await llm.chat(messages, temperature=req.temperature)
+    except HTTPException:
+        raise                                    # don't swallow our own 400s
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="All LLM backends unavailable. Try again shortly."
+        )
 
     return ChatResponse(
         content=result["content"],
